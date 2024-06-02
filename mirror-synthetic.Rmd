@@ -1,0 +1,242 @@
+---
+title: "Discovering underlying dynamics in time series of networks"
+author: "Department of Applied Mathematics and Statistics, Johns Hopkins University"
+date: '`r Sys.Date()`'
+output:
+  rmdformats::html_clean:
+    keep_md: yes
+    highlight: kate
+    self_contained: true
+    code_folding: hide
+    thumbnails: false
+    lightbox: true
+    gallery: true
+    fig_width: 4.5
+    fig_height: 4.5
+    df_print: kable
+    fig_caption: true
+    use_bookdown: true
+    css: ~/RFolder/pandoc.css
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup,echo=FALSE,message=FALSE,results='asis'}
+suppressWarnings(library(knitr))
+
+opts_chunk$set(echo=TRUE,warning=FALSE,message=FALSE,comment="#",fig.path='figure/', dev=c('png','pdf'))
+knitr::opts_chunk$set(
+  class.source = "numberLines lineAnchors"
+)
+```
+
+```{r fun}
+if (!require(pacman)) {
+	install.packages("pacman")
+}
+pacman::p_load(igraph, irlba, Matrix, lubridate, scales, vegan, tidyverse, doParallel)
+registerDoParallel(detectCores()/2)
+
+theme_update(axis.text = element_text(size=12),
+             strip.text = element_text(size = 12, face="bold"),
+             axis.title = element_text(size=14, face="bold"))
+
+full.ase <- function(A, d, diagaug=TRUE, doptr=FALSE) {
+  #    require(irlba)
+  # doptr
+  if (doptr) {
+    g <- ptr(A)
+    A <- g[]
+  } else {
+    A <- A[]
+  }
+  
+  # diagaug
+  if (diagaug) {
+    diag(A) <- rowSums(A) / (nrow(A)-1)
+  }
+  
+  A.svd <- irlba(A,d)
+  Xhat <- A.svd$u %*% diag(sqrt(A.svd$d))
+  Xhat.R <- NULL
+  
+  if (!isSymmetric(A)) {
+    Xhat.R <- A.svd$v %*% diag(sqrt(A.svd$d))
+  }
+  
+  return(list(eval=A.svd$d, Xhat=Matrix(Xhat), Xhat.R=Xhat.R))
+}
+
+procrustes2 <- function(X, Y) {
+    tmp <- t(X) %*% Y
+    tmp.svd <- svd(tmp)
+    W <- tmp.svd$u %*% t(tmp.svd$v)
+    newX <- X %*% W
+    return(list(newX = newX, error = norm(newX-Y, type="F"), W = W))
+}
+```
+
+# Discovering underlying dynamics in time series of networks
+
+Avanti Athreya, Zachary Lubberts, Youngser Park, and Carey Priebe, "Discovering underlying dynamics in time series of networks", submitted, 2022.
+
+https://arxiv.org/abs/2205.06877
+
+## Abstract
+
+Analyzing changes in network evolution is central to statistical network inference, as underscored by recent challenges of predicting and distinguishing pandemic-induced transformations in organizational and communication networks. We consider a joint network model in which each node has an associated time-varying low-dimensional latent vector of feature data, and connection probabilities are functions of these vectors. Under mild assumptions, the time-varying evolution of the latent vectors exhibits low-dimensional manifold structure under a suitable notion of distance. This distance can be approximated by a measure of separation between the observed networks themselves, and there exist Euclidean representations for underlying network structure, as characterized by this distance, at any given time. These Euclidean representations, called Euclidean mirrors, permit the visualization of network evolution and transform network inference questions such as change-point and anomaly detection into a classical setting. We illustrate our methodology with real and synthetic data, and identify change points corresponding to massive shifts in pandemic policies in a communication network of a large organization.
+
+## MSFT TSG Data
+
+We consider a time series of weighted communication networks, arising from the email communications between 32277 entities in a large organization, with one network being generated each month from January 2019 to December 2020, a period of 24 months. We obtain a clustering by applying Leiden clustering to the January 2019 network, obtaining 33 clusters that we retain throughout the two year period. We make use of this clustering to compute the Graph Encoder Embedding (GEE, which produces spectrally-derived estimates of invertible transformations of the original latent positions. For each time $t=1, \cdots, 24$, we obtain a matrix $\hat{Z}_t\in\mathbb{R}^{32277\times 33}$, each row of which provides an estimate of these transformed latent positions. Constructing the distance matrix $\mathcal{D}_{\hat{\psi}}=[\hat{d}_{MV}(\hat{Z}_t,\hat{Z}_{t'})]\in\mathbb{R}^{24\times24}$, we apply CMDS to obtain the estimated curve $\hat{\psi}$, where the choice of dimension $c=2$ is based on the scree plot of $\mathcal{D}_{\hat{\psi}}$. The nonlinear dimensionality reduction technique ISOMAP, which relies on a spectral decomposition of geodesic distances, can be applied to these points to extract an estimated 1-dimensional curve. This one-dimensional curve exhibits some changes from the previous trend in Spring 2020 and a much sharper qualitative transformation in July 2020. What is striking is that both these qualitative shifts correspond to policy changes: in Spring 2020, there was an initial shift in operations, widely regarded at the time as temporary. In mid-summer 2020, nearly the peak of the second wave of of COVID-19, it was much clearer that these organizational shifts were likely permanent, or at least significantly longer-lived.
+
+<p align = "center">
+<img src = "https://www.cis.jhu.edu/~parky/OrgSci/Umap-n2v-t16-19-proc14-1.png">
+</p>
+<p align = "center">
+Fig 1. Evidence of structural network dissimilarity across time. Visualizations are of anonymized and aggregated Microsoft communications networks in April and July 2020, with two communities highlighted.
+During this time period, our analysis demonstrates that
+the network as a whole experiences a major structural shock coincident with the pandemic work-from-home order.
+However, this shock is \emph{not} experienced by all network communities:
+the green community highlighted here experiences just a constant drift,
+while the blue community experiences a major shock.
+(See Figure 2.3,
+ wherein the overall network behavior,
+ as well as the two highlighted communities with their different temporal behavior,
+ are depicted.) The figures here are two-dimensional renderings of temporal snapshots of a large (n=32277) complex network;
+hence, any conclusions based on this visualization alone are entirely notional.
+</p>
+
+
+## Synthetic Data
+
+We use real data to obtain a distribution from which we may resample. Such a network bootstrap permits us to test our asymptotic results through replicable simulations that are grounded in actual data. To this end, we consider the true latent position distribution at each time to be equally likely to be any row of the GEE-obtained estimates from the real data, $\hat{Z}_t\in\mathbb{R}^{32277\times 33}$, for $t=1,\ldots,24.$ Given a sample size $n_s$, for each time, we sample these rows uniformly and with replacement to get a matrix of latent positions $X_t\in\mathbb{R}^{n_s\times 33}$. We treat this matrix as the generating latent position matrix for independent adjacency matrices  $A_t\sim\mathrm{RDPG}(X_t)$. Note that if for sample $i$, we choose row $j$ of $\hat{Z}_1$ at time $t=1$, then the same row $j$ of $\hat{Z}_t$ will be used for all times $t=1,\ldots,24$ for that sample, so that the original dependence structure is preserved. We may now apply the methods described in our theorems, namely ASE of the adjacency matrices followed by Procrustes alignment, to obtain the estimates $\hat{X}_t$, along with the associated distance estimates. 
+
+1. take $32277 \times 33$ embeddings for each time,
+2. given sample size $n_s$, sample rows (with replacement) for each time (use the same sampled rows for all time),
+3. generate a tsg of RDPG's,
+4. run ASE into d=33, do procrustes to align them,
+5. then do our manifold learning procedure, i.e., isomap o cmds o D.
+
+To reproduce the Figure 6 in the manuscript, we provide the code below. The code is parallelized and may take a few minutes to run. The code will save the results in the `Output` folder, and the final plot will be displayed below.
+
+```{r sampling, echo=F, eval=F, fig.cap="Pandemic effect recovered from synthetic data. For each of 100 replicates of bootstrapped data, with ns = 30000 for each replicate, we repeat the procedure of Figure 2.4 left panel. We then plot these sigmages using a box and whisker plot. The pandemic effect in summer of 2020 is clearly visible in all but a few replicates, while the effect in March-April is still identified in the majority of replicates."}
+
+load("Data/df.gb3-noel-aee-LFALSE-CTRUE-weighted-noptr.RData")
+load("Data/df.vY.RData")
+Yhat <- unlist(df.v$Y)
+if (min(Yhat) == 0) Yhat <- Yhat + 1 # fix 0-base
+
+m <- nrow(df.gb3.noel)
+n <- nrow(df.gb3.noel$aee[[1]]$Z)
+comb <- combn(m,2)
+
+dhat <- dmax <- max(Yhat)
+
+docenter <- FALSE
+mdsd <- 2
+isod <- 1
+
+ns <- 30000
+nmc <- 100
+registerDoParallel(detectCores()/2)
+
+rerun = FALSE
+if (rerun) {
+    for(mc in 1:nmc)  {
+      cat("working on mc = ", mc, "\n")
+        set.seed(12345+mc)
+        samp <- sample(n, ns, replace = TRUE)
+        
+        df.gb4 <- df.gb3.noel %>% mutate(rdpg = map(aee, function(x) sample_dot_product(t(x$Z[samp,]))))
+        df.gb4 <- df.gb4 %>%  
+            mutate(emb = map(rdpg, ~full.ase(., dmax, doptr=FALSE))) %>%
+            # mutate(elb = map(emb, function(x) getElbows(x$eval, plot=F))) %>%
+            select(-c(aee,rdpg))
+        
+        Dout <- foreach (k = 1:ncol(comb), .combine='rbind') %dopar% {
+            i <- comb[1,k]
+            j <- comb[2,k]
+            # cat("i = ", i, ", j = ", j, "\n")
+            
+            Xhat1 <- NULL
+            Xhati <- df.gb4$emb[[i]]$Xhat[,1:dhat,drop=F]
+            Xhatj <- df.gb4$emb[[j]]$Xhat[,1:dhat,drop=F]
+            
+            proc <- procrustes2(as.matrix(Xhati), as.matrix(Xhatj))
+            Xhati <- Xhati %*% proc$W
+            
+            D <- norm(Xhati - Xhatj, type="2")^2/n
+            tibble(i=i, j=j, Xi=list(Xhati), Xj=list(Xhatj), D=D)
+        }
+        D2 <- matrix(0,m,m)
+        D2[t(comb)] <- Dout$D
+        D2 <- (D2 + t(D2)) / 1
+        D2 <- sqrt(D2)
+        
+        mds <- cmdscale(D2, m-1)
+        df.mds <- tibble(date=df.gb3.noel$date, x=mds[,1], y=mds[,2], z=mds[,3], w=mds[,4])
+        
+        dis <- vegdist(mds[,1:mdsd], "euclidean")
+        knn <- 1
+        success <- FALSE
+        while(!success) {
+            tryCatch({
+                iso = isomap(dis, k=knn, ndim=isod, path="shortest")$points
+                success <- TRUE
+            },
+            error = function(e) {
+                knn <<- knn + 1
+            })
+        }
+        iso = isomap(dis, k=knn, ndim=isod, path="shortest")$points
+        df.iso <- tibble(iso=iso[,1]) %>% mutate(i=1:nrow(mds), date=df.mds$date)
+        if (mc==1) save(df.iso, file=paste0("df.iso-rdpg-aee-ns",ns,"-mc",mc,".RData"))
+        
+        df.fit <- NULL
+        tvec <- 5:(m-1)
+        for (j in tvec) {
+            fit <- lm(iso ~ i, data=df.iso %>% filter(i %in% 1:j))
+            newdat <- df.iso %>% filter(i==j+1)
+            pred <- predict(fit, newdat, se.fit=T)
+            df.fit <- rbind(df.fit, newdat %>% mutate(mc=mc, pred.iso=as.numeric(pred$fit), diff=as.numeric(abs(iso - pred$fit)), pred.se=pred$se.fit))
+        }
+        
+        df.perf <- df.fit %>% select(mc, iso, date, pred.iso, diff, pred.se) %>% mutate(detect=diff/pred.se) 
+        save(df.perf, file=paste0("Output/df.perf-rdpg-aee-weighted-noptr-ns",ns,"-mc",mc,".RData"))
+#        df.perf
+    }
+    
+    # collect them all
+    df.samp = NULL
+    for (mc in 1:nmc) {
+        load(paste0("Output/df.perf-rdpg-aee-weighted-noptr-ns",ns,"-mc",mc,".RData"))
+        df.samp <- rbind(df.samp, df.perf)
+    }
+    save(df.samp, file=paste0("Output/df.samp-rdpg-aee-weighted-noptr-ns",ns,"-nmc",nmc,".RData"))
+} else {
+    load(paste0("Output/df.samp-rdpg-aee-weighted-noptr-ns",ns,"-nmc",nmc,".RData"))
+}
+
+df.samp %>% filter(detect < 20) %>% #group_by(mc) %>%
+    ggplot(aes(x=ym(date), y=detect, color=date, fill=date)) +
+    geom_boxplot(notch = TRUE, alpha=0.5) +
+    geom_hline(yintercept = 5, linetype=2) +
+    theme(legend.position = "none") +
+    labs(x="time", y="sigmages") + 
+    scale_x_date(breaks = scales::breaks_pretty(8), labels=label_date_short()) +
+    theme(axis.text.x=element_text(hjust=0.7))
+```
+
+<p align = "center">
+<img src = "https://www.cis.jhu.edu/~parky/IsoMirror/synthetic.png">
+</p>
+<p align = "center">
+Fig 6. Pandemic effect recovered from synthetic data. For each of 100 replicates of bootstrapped data, with ns = 30000 for each replicate, we repeat procedure in bottom left panel of Figure 4. Sigmages plotted in a box-and-whisker plot. Pandemic effect in summer of 2020 is visible in all but a few replicates; effect in March-April is still identified in the majority of replicates.
+</p>
+
+
+```{r info, echo=F}
+sessionInfo()
+```
