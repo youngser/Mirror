@@ -119,7 +119,10 @@ We use real data to obtain a distribution from which we may resample. Such a net
 4. run ASE into d=33, do procrustes to align them,
 5. then do our manifold learning procedure, i.e., isomap o cmds o D.
 
-To reproduce the Figure 6 in the manuscript, we provide the code below. The code is parallelized and may take a few minutes to run. The code will save the results in the `Output` folder, and the final plot will be displayed below.
+To reproduce the Figure 6 in the manuscript, we provide the code `mirror-synthetic.Rmd` file. The code is parallelized and may take ~15 minutes to run for each replicate of bootstrap data. The code will save the results in the `Output` folder, and the final plot will look like the attached figure.
+
+NB: To rerun the code, make sure to change `rerun = FALSE` to `rerun = TRUE` in the code chunk in the `rmarkdown` file.
+
 
 ```{r sampling, echo=F, eval=F, fig.cap="Pandemic effect recovered from synthetic data. For each of 100 replicates of bootstrapped data, with ns = 30000 for each replicate, we repeat the procedure of Figure 2.4 left panel. We then plot these sigmages using a box and whisker plot. The pandemic effect in summer of 2020 is clearly visible in all but a few replicates, while the effect in March-April is still identified in the majority of replicates."}
 
